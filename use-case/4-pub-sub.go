@@ -8,12 +8,11 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// createRedisClient initializes and returns a new Redis client
-func createRedisClient() *redis.Client {
+func NewRedisClient(addr, password string, db int) *redis.Client {
 	return redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
+		Addr:     addr,     
+		Password: password, 
+		DB:       db,      
 	})
 }
 
@@ -49,7 +48,7 @@ func main() {
 	)
 
 	ctx := context.Background()
-	rdb := createRedisClient()
+	rdb := NewRedisClient("localhost:6379", "", 0)
 	defer rdb.Close()
 
 	subscriber := rdb.Subscribe(ctx, channel)
