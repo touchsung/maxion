@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mssql_db
+    platform: linux/amd64
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=YourStrong@Passw0rd
+      - MSSQL_PID=Developer
+    user: root
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql_data:/var/opt/mssql
+    networks:
+      - mssql_network
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P YourStrong@Passw0rd -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      retries: 10
+      start_period: 10s
+      timeout: 3s
+
+  mssql.configurator:
+    # Reference existing configurator configuration
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    user: root
+    environment:
+      - MSSQL_SA_PASSWORD=YourStrong@Passw0rd
+    volumes:
+      - ./server/sql:/docker-entrypoint-initdb.d
+    networks:
+      - mssql_network
+    depends_on:
+      mssql:
+        condition: service_healthy
+    command: >
+      bash -c '
+      /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P YourStrong@Passw0rd -C -d master -i docker-entrypoint-initdb.d/init.sql &&
+      /opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P YourStrong@Passw0rd -C -d master -i docker-entrypoint-initdb.d/mock_data.sql;
+      echo "All done!";
+      '
+
+  redis:
+    # Reference existing redis configuration
+    image: redis:latest
+    container_name: redis_cache
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mssql_network
+    restart: unless-stopped
+
+  server:
+    build: 
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: maxion_server
+    environment:
+      - DB_HOST=mssql
+      - DB_USER=sa
+      - DB_PASSWORD=YourStrong@Passw0rd
+      - DB_NAME=TradingBot
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    ports:
+      - "3000:3000"
+    networks:
+      - mssql_network
+    restart: unless-stopped
+    depends_on:
+      mssql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: maxion_client
+    ports:
+      - "80:80"
+    environment:
+      - VITE_API_URL=http://server:3000
+    networks:
+      - mssql_network
+    depends_on:
+      - server
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+
+volumes:
+  mssql_data:
+    name: mssql_data
+  redis_data:
+    name: redis_data
+
+networks:
+  mssql_network:
+    name: mssql_network 
